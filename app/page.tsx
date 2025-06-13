@@ -3,12 +3,11 @@
 import { useState } from "react"
 import { Navigation } from "@/components/navigation"
 import { SoloQuest } from "@/components/solo-quest"
-import { MultiplayerQuest } from "@/components/multiplayer-quest"
 import { AuthModal } from "@/components/auth-modal"
 import { UserHistory } from "@/components/user-history"
 import { useAuth } from "@/hooks/use-auth"
 
-type GameMode = "solo" | "multiplayer" | "history"
+type GameMode = "solo" | "history"
 
 export default function HomePage() {
   const [currentMode, setCurrentMode] = useState<GameMode>("solo")
@@ -27,7 +26,6 @@ export default function HomePage() {
 
       <main className="container mx-auto px-4 py-6">
         {currentMode === "solo" && <SoloQuest user={user} />}
-        {currentMode === "multiplayer" && <MultiplayerQuest user={user} />}
         {currentMode === "history" && user && <UserHistory user={user} />}
       </main>
 
