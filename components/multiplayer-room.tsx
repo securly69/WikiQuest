@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Users, Crown, Clock, Play, ArrowLeft, Compass } from "lucide-react"
+import { Users, Crown, Clock, Play, ArrowLeft, Trophy, User, RefreshCw } from "lucide-react"
+import { QuestPlay } from "@/components/quest-play"
 import { useAuth } from "@/hooks/use-auth"
 
 interface MultiplayerRoomProps {
@@ -12,8 +13,14 @@ interface MultiplayerRoomProps {
 }
 
 interface Player {
-  username: string
   id: string
+  username: string
+  currentArticle?: string
+  steps?: number
+  completed?: boolean
+  completionTime?: number
+  path?: string[]
+  lastUpdate?: number
 }
 
 interface RoomData {
@@ -24,83 +31,117 @@ interface RoomData {
   status: "waiting" | "playing" | "finished"
   startArticle?: string
   goalArticle?: string
+  lastUpdate: number
 }
 
 export function MultiplayerRoom({ roomId }: MultiplayerRoomProps) {
   const [roomData, setRoomData] = useState<RoomData | null>(null)
+  const [gameStarted, setGameStarted] = useState(false)
   const [error, setError] = useState("")
+  const [isPolling, setIsPolling] = useState(true)
   const { user } = useAuth()
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const hasJoinedRef = useRef(false)
 
+  // Polling-based multiplayer system
   useEffect(() => {
-    loadRoomData()
-  }, [roomId])
+    if (!user || hasJoinedRef.current) return
 
-  const loadRoomData = async () => {
-    try {
-      // Try to fetch from server first
-      const response = await fetch(`/api/rooms/${roomId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setRoomData(data)
+    hasJoinedRef.current = true
+    joinRoom()
 
-        // Add current user if not already in room
-        if (user && !data.players.some((p: Player) => p.id === user.id)) {
-          await addPlayerToRoom(data)
-        }
-        return
+    // Start polling for updates
+    pollIntervalRef.current = setInterval(() => {
+      if (isPolling) {
+        pollRoomUpdates()
       }
-    } catch (error) {
-      console.log("Server not available, checking localStorage")
-    }
+    }, 2000)
 
-    // Fallback to localStorage
-    const data = localStorage.getItem(`wikiquest_room_${roomId}`)
-    if (!data) {
-      setError("Room not found. The room may have expired or the code is incorrect.")
-      return
-    }
-
-    try {
-      const roomData: RoomData = JSON.parse(data)
-      setRoomData(roomData)
-
-      // Add current user to room if not already present
-      if (user && !roomData.players.some((p) => p.id === user.id)) {
-        roomData.players.push({ username: user.username, id: user.id })
-        localStorage.setItem(`wikiquest_room_${roomId}`, JSON.stringify(roomData))
-        setRoomData({ ...roomData })
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
       }
-    } catch (error) {
-      setError("Invalid room data.")
     }
-  }
+  }, [user, roomId, isPolling])
 
-  const addPlayerToRoom = async (roomData: RoomData) => {
+  const joinRoom = async () => {
     if (!user) return
 
-    const updatedRoom = {
-      ...roomData,
-      players: [...roomData.players, { username: user.username, id: user.id }],
-    }
-
     try {
-      await fetch(`/api/rooms/${roomId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedRoom),
-      })
-    } catch (error) {
-      // Fallback to localStorage
-      localStorage.setItem(`wikiquest_room_${roomId}`, JSON.stringify(updatedRoom))
-    }
+      // Try to get existing room data
+      let roomData = getRoomFromStorage()
 
-    setRoomData(updatedRoom)
+      if (!roomData) {
+        // Create new room if it doesn't exist
+        roomData = {
+          id: roomId,
+          creator: user.username,
+          createdAt: new Date().toISOString(),
+          players: [],
+          status: "waiting",
+          lastUpdate: Date.now(),
+        }
+      }
+
+      // Add current user if not already in room
+      if (!roomData.players.find((p) => p.id === user.id)) {
+        roomData.players.push({
+          id: user.id,
+          username: user.username,
+          currentArticle: "",
+          steps: 0,
+          completed: false,
+          lastUpdate: Date.now(),
+        })
+      }
+
+      roomData.lastUpdate = Date.now()
+      saveRoomToStorage(roomData)
+      setRoomData(roomData)
+    } catch (error) {
+      setError("Failed to join room")
+    }
   }
 
-  const startGame = async () => {
+  const pollRoomUpdates = () => {
+    const roomData = getRoomFromStorage()
+    if (roomData) {
+      setRoomData(roomData)
+      if (roomData.status === "playing" && roomData.startArticle && roomData.goalArticle) {
+        setGameStarted(true)
+      }
+    }
+  }
+
+  const getRoomFromStorage = (): RoomData | null => {
+    try {
+      const data = localStorage.getItem(`wikiquest_room_${roomId}`)
+      return data ? JSON.parse(data) : null
+    } catch {
+      return null
+    }
+  }
+
+  const saveRoomToStorage = (data: RoomData) => {
+    try {
+      localStorage.setItem(`wikiquest_room_${roomId}`, JSON.stringify(data))
+      // Also save to a global rooms index for cross-device access
+      const allRooms = JSON.parse(localStorage.getItem("wikiquest_all_rooms") || "{}")
+      allRooms[roomId] = {
+        id: roomId,
+        creator: data.creator,
+        lastUpdate: data.lastUpdate,
+        playerCount: data.players.length,
+      }
+      localStorage.setItem("wikiquest_all_rooms", JSON.stringify(allRooms))
+    } catch (error) {
+      console.error("Failed to save room data:", error)
+    }
+  }
+
+  const startGame = () => {
     if (!roomData || !user) return
 
-    // Use curated challenges for multiplayer
     const challenges = [
       { start: "World War II", goal: "Climate change" },
       { start: "Photosynthesis", goal: "Jazz music" },
@@ -116,23 +157,87 @@ export function MultiplayerRoom({ roomId }: MultiplayerRoomProps) {
       status: "playing" as const,
       startArticle: randomChallenge.start,
       goalArticle: randomChallenge.goal,
+      lastUpdate: Date.now(),
     }
 
-    try {
-      await fetch(`/api/rooms/${roomId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedRoom),
-      })
-    } catch (error) {
-      localStorage.setItem(`wikiquest_room_${roomId}`, JSON.stringify(updatedRoom))
+    saveRoomToStorage(updatedRoom)
+    setRoomData(updatedRoom)
+    setGameStarted(true)
+  }
+
+  const updatePlayerProgress = (currentArticle: string, path: string[]) => {
+    if (!roomData || !user) return
+
+    const updatedRoom = {
+      ...roomData,
+      players: roomData.players.map((player) =>
+        player.id === user.id
+          ? {
+              ...player,
+              currentArticle,
+              steps: path.length - 1,
+              path,
+              lastUpdate: Date.now(),
+            }
+          : player,
+      ),
+      lastUpdate: Date.now(),
     }
 
+    saveRoomToStorage(updatedRoom)
+    setRoomData(updatedRoom)
+  }
+
+  const completeQuest = (completionTime: number, steps: number, path: string[]) => {
+    if (!roomData || !user) return
+
+    const updatedRoom = {
+      ...roomData,
+      players: roomData.players.map((player) =>
+        player.id === user.id
+          ? {
+              ...player,
+              completed: true,
+              completionTime,
+              steps,
+              path,
+              lastUpdate: Date.now(),
+            }
+          : player,
+      ),
+      lastUpdate: Date.now(),
+    }
+
+    saveRoomToStorage(updatedRoom)
     setRoomData(updatedRoom)
   }
 
   const leaveRoom = () => {
+    if (roomData && user) {
+      const updatedRoom = {
+        ...roomData,
+        players: roomData.players.filter((p) => p.id !== user.id),
+        lastUpdate: Date.now(),
+      }
+
+      if (updatedRoom.players.length === 0) {
+        localStorage.removeItem(`wikiquest_room_${roomId}`)
+        const allRooms = JSON.parse(localStorage.getItem("wikiquest_all_rooms") || "{}")
+        delete allRooms[roomId]
+        localStorage.setItem("wikiquest_all_rooms", JSON.stringify(allRooms))
+      } else {
+        saveRoomToStorage(updatedRoom)
+      }
+    }
+
+    setIsPolling(false)
     window.location.href = "/"
+  }
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
   if (error) {
@@ -141,7 +246,7 @@ export function MultiplayerRoom({ roomId }: MultiplayerRoomProps) {
         <Card className="max-w-md w-full bg-white/80 backdrop-blur-sm border-0 shadow-xl">
           <CardContent className="py-12 text-center space-y-4">
             <div className="text-6xl">❌</div>
-            <h2 className="text-2xl font-bold text-gray-800">Room Not Found</h2>
+            <h2 className="text-2xl font-bold text-gray-800">Room Error</h2>
             <p className="text-gray-600">{error}</p>
             <Button onClick={leaveRoom} className="bg-gradient-to-r from-blue-600 to-purple-600">
               <ArrowLeft className="w-4 h-4 mr-2" />
@@ -182,6 +287,80 @@ export function MultiplayerRoom({ roomId }: MultiplayerRoomProps) {
     )
   }
 
+  if (gameStarted && roomData.startArticle && roomData.goalArticle) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-blue-50 to-purple-100">
+        <div className="container mx-auto px-4 py-6">
+          {/* Multiplayer Progress Bar */}
+          <Card className="mb-6 bg-white/80 backdrop-blur-sm border-0 shadow-xl">
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Users className="w-5 h-5" />
+                  <span>Race Progress</span>
+                </div>
+                <Button variant="outline" size="sm" onClick={pollRoomUpdates} className="flex items-center space-x-1">
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Refresh</span>
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {roomData.players.map((player) => (
+                  <div
+                    key={player.id}
+                    className={`flex items-center justify-between p-3 rounded-lg border ${
+                      player.completed
+                        ? "bg-green-50 border-green-200"
+                        : player.id === user.id
+                          ? "bg-blue-50 border-blue-200"
+                          : "bg-gray-50 border-gray-200"
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      {player.username === roomData.creator && <Crown className="w-4 h-4 text-yellow-500" />}
+                      <User className="w-4 h-4" />
+                      <span className="font-medium">
+                        {player.username}
+                        {player.id === user.id && " (You)"}
+                      </span>
+                      {player.completed && <Trophy className="w-4 h-4 text-green-600" />}
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <div className="text-sm text-gray-600">Steps: {player.steps || 0}</div>
+                      {player.currentArticle && (
+                        <Badge variant="outline" className="text-xs max-w-32 truncate">
+                          {player.currentArticle}
+                        </Badge>
+                      )}
+                      {player.completed && player.completionTime && (
+                        <Badge variant="default" className="bg-green-600">
+                          {formatTime(player.completionTime)}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <QuestPlay
+            startArticle={roomData.startArticle}
+            goalArticle={roomData.goalArticle}
+            onBackToSetup={leaveRoom}
+            mode="multiplayer"
+            user={user}
+            roomId={roomId}
+            onProgressUpdate={updatePlayerProgress}
+            onQuestComplete={completeQuest}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       {/* Header */}
@@ -192,6 +371,10 @@ export function MultiplayerRoom({ roomId }: MultiplayerRoomProps) {
         <Badge variant="outline" className="text-lg px-4 py-2 font-mono">
           {roomId}
         </Badge>
+        <div className="flex items-center justify-center space-x-2">
+          <div className="w-3 h-3 rounded-full bg-green-500"></div>
+          <span className="text-sm text-gray-600">Local Multiplayer</span>
+        </div>
       </div>
 
       {/* Room Status */}
@@ -237,14 +420,20 @@ export function MultiplayerRoom({ roomId }: MultiplayerRoomProps) {
       {/* Players */}
       <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl mb-8">
         <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Users className="w-5 h-5" />
-            <span>Players ({roomData.players.length})</span>
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Users className="w-5 h-5" />
+              <span>Players ({roomData.players.length})</span>
+            </div>
+            <Button variant="outline" size="sm" onClick={pollRoomUpdates} className="flex items-center space-x-1">
+              <RefreshCw className="w-4 h-4" />
+              <span>Refresh</span>
+            </Button>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {roomData.players.map((player, index) => (
+            {roomData.players.map((player) => (
               <div
                 key={player.id}
                 className={`flex items-center space-x-2 p-3 rounded-lg border ${
@@ -252,6 +441,7 @@ export function MultiplayerRoom({ roomId }: MultiplayerRoomProps) {
                 }`}
               >
                 {player.username === roomData.creator && <Crown className="w-4 h-4 text-yellow-500" />}
+                <User className="w-4 h-4" />
                 <span className="font-medium">{player.username}</span>
                 {player.id === user.id && (
                   <Badge variant="secondary" className="text-xs">
@@ -296,41 +486,6 @@ export function MultiplayerRoom({ roomId }: MultiplayerRoomProps) {
                 Leave Room
               </Button>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {roomData.status === "playing" && (
-        <Card className="bg-gradient-to-r from-emerald-400 via-blue-500 to-purple-600 text-white border-0 shadow-xl">
-          <CardContent className="py-8 text-center space-y-4">
-            <h2 className="text-2xl font-bold">Quest in Progress!</h2>
-            <p className="text-lg">
-              Navigate from <strong>{roomData.startArticle}</strong> to <strong>{roomData.goalArticle}</strong>
-            </p>
-            <div className="flex justify-center space-x-4">
-              <Button
-                onClick={() =>
-                  window.open(
-                    `/solo?start=${encodeURIComponent(roomData.startArticle!)}&goal=${encodeURIComponent(roomData.goalArticle!)}`,
-                  )
-                }
-                className="bg-white/20 border-white/30 text-white hover:bg-white/30"
-              >
-                <Compass className="w-4 h-4 mr-2" />
-                Start Your Quest
-              </Button>
-              <Button
-                onClick={leaveRoom}
-                variant="outline"
-                className="bg-white/20 border-white/30 text-white hover:bg-white/30"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Leave Room
-              </Button>
-            </div>
-            <p className="text-sm opacity-90">
-              Real-time multiplayer racing is coming soon! For now, compete by comparing your final results.
-            </p>
           </CardContent>
         </Card>
       )}

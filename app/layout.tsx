@@ -6,7 +6,7 @@ import "./globals.css"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "WikiQuest - Navigate Wikipedia Like Never Before",
+  title: "WikiQuest v2.1.0 - Navigate Wikipedia Like Never Before",
   description:
     "Race through Wikipedia articles to reach your destination. Challenge friends and compete on route-specific leaderboards.",
   keywords: "wikipedia, game, navigation, quiz, education, multiplayer",

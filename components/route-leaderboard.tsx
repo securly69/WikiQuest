@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Trophy, Clock, MapPin, User, Compass, ArrowRight, Bot } from "lucide-react"
+import { Trophy, Clock, MapPin, User, Compass, ArrowRight } from "lucide-react"
 import type { User as UserType } from "@/hooks/use-auth"
 
 interface RouteResult {
@@ -12,13 +12,6 @@ interface RouteResult {
   time: number
   path: string[]
   hintsUsed: number
-}
-
-interface AIResult {
-  steps: number
-  time: number
-  path: string[]
-  completed: boolean
 }
 
 interface LeaderboardEntry {
@@ -38,19 +31,11 @@ interface RouteLeaderboardProps {
   startArticle: string
   goalArticle: string
   userResult: RouteResult
-  aiResult?: AIResult
   onNewQuest: () => void
   user: UserType | null
 }
 
-export function RouteLeaderboard({
-  startArticle,
-  goalArticle,
-  userResult,
-  aiResult,
-  onNewQuest,
-  user,
-}: RouteLeaderboardProps) {
+export function RouteLeaderboard({ startArticle, goalArticle, userResult, onNewQuest, user }: RouteLeaderboardProps) {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [userRank, setUserRank] = useState<number>(0)
   const [activeTab, setActiveTab] = useState<"time" | "steps" | "score">("score")
@@ -121,7 +106,6 @@ export function RouteLeaderboard({
   }
 
   const userScore = calculateScore(userResult.steps, userResult.time, userResult.hintsUsed)
-  const aiScore = aiResult ? calculateScore(aiResult.steps, aiResult.time, 0) : 0
   const sortedLeaderboard = getSortedLeaderboard()
 
   return (
@@ -142,77 +126,36 @@ export function RouteLeaderboard({
         </div>
       </div>
 
-      {/* Race Results */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* User Result */}
-        <Card className="bg-gradient-to-r from-emerald-400 via-blue-500 to-purple-600 text-white border-0 shadow-xl">
-          <CardContent className="py-6">
-            <div className="text-center space-y-4">
-              <div className="flex items-center justify-center space-x-2">
-                <User className="w-6 h-6" />
-                <h2 className="text-2xl font-bold">Your Performance</h2>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center">
-                  <div className="text-3xl font-bold">{userResult.steps}</div>
-                  <div className="text-sm opacity-90">Steps</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold">{formatTime(userResult.time)}</div>
-                  <div className="text-sm opacity-90">Time</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold">{userResult.hintsUsed}</div>
-                  <div className="text-sm opacity-90">Hints</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold">{userScore}</div>
-                  <div className="text-sm opacity-90">Score</div>
-                </div>
-              </div>
-              {user && userRank > 0 && <div className="text-lg font-semibold">Rank: #{userRank}</div>}
+      {/* User Result Summary */}
+      <Card className="bg-gradient-to-r from-emerald-400 via-blue-500 to-purple-600 text-white border-0 shadow-xl">
+        <CardContent className="py-6">
+          <div className="text-center space-y-4">
+            <div className="flex items-center justify-center space-x-2">
+              <User className="w-6 h-6" />
+              <h2 className="text-2xl font-bold">Your Performance</h2>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* AI Result */}
-        {aiResult && (
-          <Card className="bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 text-white border-0 shadow-xl">
-            <CardContent className="py-6">
-              <div className="text-center space-y-4">
-                <div className="flex items-center justify-center space-x-2">
-                  <Bot className="w-6 h-6" />
-                  <h2 className="text-2xl font-bold">AI Performance</h2>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center">
-                    <div className="text-3xl font-bold">{aiResult.steps}</div>
-                    <div className="text-sm opacity-90">Steps</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-3xl font-bold">{formatTime(aiResult.time)}</div>
-                    <div className="text-sm opacity-90">Time</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-3xl font-bold">{aiScore}</div>
-                    <div className="text-sm opacity-90">Score</div>
-                  </div>
-                  <div className="text-center">
-                    <Badge variant={aiResult.completed ? "default" : "secondary"} className="bg-white/20">
-                      {aiResult.completed ? "Complete" : "Incomplete"}
-                    </Badge>
-                  </div>
-                </div>
-                {aiResult.completed && (
-                  <div className="text-lg font-semibold">
-                    {userScore > aiScore ? "You Won!" : userScore < aiScore ? "AI Won!" : "Tie!"}
-                  </div>
-                )}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="text-3xl font-bold">{userResult.steps}</div>
+                <div className="text-sm opacity-90">Steps</div>
               </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold">{formatTime(userResult.time)}</div>
+                <div className="text-sm opacity-90">Time</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold">{userResult.hintsUsed}</div>
+                <div className="text-sm opacity-90">Hints</div>
+              </div>
+              <div className="text-center">
+                <div className="text-3xl font-bold">{userScore}</div>
+                <div className="text-sm opacity-90">Score</div>
+              </div>
+            </div>
+            {user && userRank > 0 && <div className="text-lg font-semibold">Rank: #{userRank}</div>}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Leaderboard */}
       <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-xl">

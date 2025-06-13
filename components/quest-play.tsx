@@ -4,12 +4,11 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, User, Clock, Compass, Trophy, Lightbulb, Bot, Play, Pause } from "lucide-react"
+import { ArrowLeft, User, Clock, Compass, Trophy, Lightbulb } from "lucide-react"
 import { WikipediaViewer } from "@/components/wikipedia-viewer"
 import { NavigationPath } from "@/components/navigation-path"
 import { HintSystem } from "@/components/hint-system"
 import { RouteLeaderboard } from "@/components/route-leaderboard"
-import { AINavigator, type NavigationStep } from "@/lib/ai-navigator"
 import { useAuth } from "@/hooks/use-auth"
 import type { User as UserType } from "@/hooks/use-auth"
 
@@ -19,9 +18,21 @@ interface QuestPlayProps {
   onBackToSetup: () => void
   mode: "solo" | "multiplayer"
   user: UserType | null
+  roomId?: string
+  onProgressUpdate?: (currentArticle: string, path: string[]) => void
+  onQuestComplete?: (completionTime: number, steps: number, path: string[]) => void
 }
 
-export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user }: QuestPlayProps) {
+export function QuestPlay({
+  startArticle,
+  goalArticle,
+  onBackToSetup,
+  mode,
+  user,
+  roomId,
+  onProgressUpdate,
+  onQuestComplete,
+}: QuestPlayProps) {
   const [currentArticle, setCurrentArticle] = useState(startArticle)
   const [navigationPath, setNavigationPath] = useState<string[]>([startArticle])
   const [isGoalReached, setIsGoalReached] = useState(false)
@@ -31,71 +42,80 @@ export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user
   const [hintsUsed, setHintsUsed] = useState(0)
   const [showLeaderboard, setShowLeaderboard] = useState(false)
 
-  // AI opponent state
-  const [aiPath, setAiPath] = useState<NavigationStep[]>([])
-  const [isAiRunning, setIsAiRunning] = useState(false)
-  const [aiCurrentArticle, setAiCurrentArticle] = useState(startArticle)
-  const [aiCompleted, setAiCompleted] = useState(false)
-  const aiNavigatorRef = useRef<AINavigator | null>(null)
-
   const { saveRaceHistory } = useAuth()
   const hasCompletedRef = useRef(false)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Initialize AI navigator
+  // Initialize start time
   useEffect(() => {
-    const handleAiStep = (step: NavigationStep) => {
-      setAiPath((prev) => [...prev, step])
-      setAiCurrentArticle(step.article)
-
-      // Check if AI reached goal
-      if (step.article.toLowerCase() === goalArticle.toLowerCase()) {
-        setAiCompleted(true)
-        setIsAiRunning(false)
-      }
-    }
-
-    aiNavigatorRef.current = new AINavigator(startArticle, goalArticle, handleAiStep)
     setStartTime(new Date())
+    hasCompletedRef.current = false
   }, [startArticle, goalArticle])
 
   // Timer effect
   useEffect(() => {
-    const timer = setInterval(() => {
-      if (!isGoalReached && !aiCompleted) {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+    }
+
+    timerRef.current = setInterval(() => {
+      if (!hasCompletedRef.current) {
         setElapsedTime(Math.floor((new Date().getTime() - startTime.getTime()) / 1000))
       }
     }, 1000)
 
-    return () => clearInterval(timer)
-  }, [startTime, isGoalReached, aiCompleted])
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+      }
+    }
+  }, [startTime])
 
-  // Goal reached effect - using useCallback to prevent re-renders
+  // Goal completion handler
   const handleGoalReached = useCallback(() => {
     if (hasCompletedRef.current) return
 
     hasCompletedRef.current = true
     setIsGoalReached(true)
 
-    if (user) {
+    // Clear timer immediately
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+    }
+
+    const finalTime = Math.floor((new Date().getTime() - startTime.getTime()) / 1000)
+
+    // Save race history for logged-in users in solo mode
+    if (user && mode === "solo") {
       const raceData = {
         startArticle,
         goalArticle,
         steps: navigationPath.length - 1,
-        time: elapsedTime,
+        time: finalTime,
         hintsUsed,
         path: navigationPath,
       }
 
-      // Use setTimeout to prevent re-render issues
-      setTimeout(() => {
+      // Use requestAnimationFrame to avoid render conflicts
+      requestAnimationFrame(() => {
         saveRaceHistory(raceData)
-      }, 100)
+      })
     }
 
-    // Show leaderboard after delay
-    setTimeout(() => setShowLeaderboard(true), 2000)
-  }, [user, saveRaceHistory, startArticle, goalArticle, navigationPath, elapsedTime, hintsUsed])
+    // Notify multiplayer room of completion
+    if (mode === "multiplayer" && onQuestComplete) {
+      onQuestComplete(finalTime, navigationPath.length - 1, navigationPath)
+    }
 
+    // Show leaderboard after delay (only for solo mode)
+    if (mode === "solo") {
+      setTimeout(() => {
+        setShowLeaderboard(true)
+      }, 2000)
+    }
+  }, [user, mode, saveRaceHistory, startArticle, goalArticle, navigationPath, hintsUsed, startTime, onQuestComplete])
+
+  // Check for goal completion
   useEffect(() => {
     if (currentArticle.toLowerCase() === goalArticle.toLowerCase() && !hasCompletedRef.current) {
       handleGoalReached()
@@ -103,31 +123,15 @@ export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user
   }, [currentArticle, goalArticle, handleGoalReached])
 
   const handleArticleChange = (newArticle: string) => {
+    if (hasCompletedRef.current) return
+
+    const newPath = [...navigationPath, newArticle]
     setCurrentArticle(newArticle)
-    setNavigationPath((prev) => [...prev, newArticle])
-  }
+    setNavigationPath(newPath)
 
-  const startAI = async () => {
-    if (!aiNavigatorRef.current || isAiRunning) return
-
-    setIsAiRunning(true)
-    setAiPath([])
-    setAiCurrentArticle(startArticle)
-    setAiCompleted(false)
-
-    try {
-      await aiNavigatorRef.current.findPath()
-    } catch (error) {
-      console.error("AI navigation failed:", error)
-    } finally {
-      setIsAiRunning(false)
-    }
-  }
-
-  const stopAI = () => {
-    setIsAiRunning(false)
-    if (aiNavigatorRef.current) {
-      aiNavigatorRef.current.stop()
+    // Update multiplayer progress
+    if (mode === "multiplayer" && onProgressUpdate) {
+      onProgressUpdate(newArticle, newPath)
     }
   }
 
@@ -145,7 +149,7 @@ export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user
     return Math.max(0, baseScore - stepPenalty - timePenalty - hintPenalty)
   }
 
-  if (showLeaderboard) {
+  if (showLeaderboard && mode === "solo") {
     return (
       <RouteLeaderboard
         startArticle={startArticle}
@@ -156,16 +160,6 @@ export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user
           path: navigationPath,
           hintsUsed,
         }}
-        aiResult={
-          aiPath.length > 1
-            ? {
-                steps: aiPath.length - 1,
-                time: Math.floor((aiPath[aiPath.length - 1]?.timestamp - aiPath[0]?.timestamp) / 1000),
-                path: aiPath.map((step) => step.article),
-                completed: aiCompleted,
-              }
-            : undefined
-        }
         onNewQuest={onBackToSetup}
         user={user}
       />
@@ -182,7 +176,7 @@ export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user
           className="flex items-center space-x-2 hover:scale-105 transition-all duration-200"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>New Quest</span>
+          <span>{mode === "multiplayer" ? "Leave Room" : "New Quest"}</span>
         </Button>
 
         <div className="flex flex-wrap items-center gap-4">
@@ -207,32 +201,24 @@ export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user
       </div>
 
       {/* Victory Banner */}
-      {(isGoalReached || aiCompleted) && (
+      {isGoalReached && (
         <Card className="bg-gradient-to-r from-emerald-400 via-blue-500 to-purple-600 text-white border-0 shadow-xl">
           <CardContent className="py-6">
             <div className="text-center space-y-3">
               <div className="text-3xl font-bold flex items-center justify-center space-x-2">
                 <Trophy className="w-8 h-8" />
-                <span>{isGoalReached && aiCompleted ? "Race Complete!" : isGoalReached ? "You Won!" : "AI Won!"}</span>
+                <span>Quest Complete!</span>
               </div>
-              {isGoalReached && (
-                <div className="text-lg">
-                  You reached <strong>{goalArticle}</strong> in <strong>{navigationPath.length - 1}</strong> steps and{" "}
-                  <strong>{formatTime(elapsedTime)}</strong>!
-                </div>
+              <div className="text-lg">
+                You reached <strong>{goalArticle}</strong> in <strong>{navigationPath.length - 1}</strong> steps and{" "}
+                <strong>{formatTime(elapsedTime)}</strong>!
+              </div>
+              <div className="text-xl font-bold">Final Score: {calculateScore()}</div>
+              {hintsUsed > 0 && <div className="text-sm opacity-90">Hints used: {hintsUsed}</div>}
+              {mode === "solo" && <div className="text-sm opacity-90">Loading leaderboard...</div>}
+              {mode === "multiplayer" && (
+                <div className="text-sm opacity-90">Check the race progress above to see how others are doing!</div>
               )}
-              {aiCompleted && (
-                <div className="text-lg">
-                  AI reached <strong>{goalArticle}</strong> in <strong>{aiPath.length - 1}</strong> steps!
-                </div>
-              )}
-              {isGoalReached && (
-                <>
-                  <div className="text-xl font-bold">Final Score: {calculateScore()}</div>
-                  {hintsUsed > 0 && <div className="text-sm opacity-90">Hints used: {hintsUsed}</div>}
-                </>
-              )}
-              <div className="text-sm opacity-90">Loading leaderboard...</div>
             </div>
           </CardContent>
         </Card>
@@ -247,6 +233,11 @@ export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user
                 <div className="flex items-center space-x-2">
                   <User className="w-5 h-5 text-emerald-600" />
                   <span>Your Quest Navigation</span>
+                  {mode === "multiplayer" && (
+                    <Badge variant="outline" className="text-xs bg-blue-50">
+                      Multiplayer
+                    </Badge>
+                  )}
                 </div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
                   <Badge variant="secondary" className="text-sm">
@@ -296,69 +287,6 @@ export function QuestPlay({ startArticle, goalArticle, onBackToSetup, mode, user
                 </div>
                 <NavigationPath path={navigationPath} goalArticle={goalArticle} />
               </div>
-            </CardContent>
-          </Card>
-
-          {/* AI Opponent */}
-          <Card className="bg-white/80 backdrop-blur-sm border-0 shadow-lg">
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Bot className="w-5 h-5 text-purple-600" />
-                <span>AI Opponent</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex space-x-2">
-                {!isAiRunning ? (
-                  <Button
-                    onClick={startAI}
-                    className="flex items-center space-x-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 transition-all duration-200 hover:scale-105"
-                    disabled={aiCompleted}
-                  >
-                    <Play className="w-4 h-4" />
-                    <span>Start AI</span>
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={stopAI}
-                    variant="destructive"
-                    className="flex items-center space-x-2 hover:scale-105 transition-all duration-200"
-                  >
-                    <Pause className="w-4 h-4" />
-                    <span>Stop AI</span>
-                  </Button>
-                )}
-              </div>
-
-              {aiPath.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">AI Steps:</span>
-                    <Badge variant="outline" className="bg-purple-50">
-                      {aiPath.length - 1}
-                    </Badge>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium mb-2">AI Current:</div>
-                    <Badge variant="outline" className="bg-purple-50">
-                      {aiCurrentArticle}
-                    </Badge>
-                    {aiCompleted && (
-                      <Badge variant="default" className="ml-2 bg-green-600">
-                        Complete!
-                      </Badge>
-                    )}
-                  </div>
-                  <NavigationPath path={aiPath.map((step) => step.article)} goalArticle={goalArticle} isBot={true} />
-
-                  {/* Show AI reasoning for current step */}
-                  {aiPath.length > 0 && aiPath[aiPath.length - 1]?.reasoning && (
-                    <div className="text-xs text-purple-600 bg-purple-50 p-2 rounded">
-                      <strong>AI Thinking:</strong> {aiPath[aiPath.length - 1].reasoning}
-                    </div>
-                  )}
-                </div>
-              )}
             </CardContent>
           </Card>
 

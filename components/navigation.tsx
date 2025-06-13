@@ -1,6 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Compass, Users, History, User, LogOut } from "lucide-react"
 import type { User as UserType } from "@/hooks/use-auth"
 
@@ -26,7 +27,15 @@ export function Navigation({ currentMode, onModeChange, user, onLogin, onLogout 
               <div className="text-3xl font-bold bg-gradient-to-r from-emerald-600 via-blue-600 to-purple-600 bg-clip-text text-transparent">
                 WikiQuest
               </div>
-              <div className="text-xs text-gray-500 font-medium -mt-1">Navigate • Discover • Conquer</div>
+              <div className="flex items-center space-x-2">
+                <div className="text-xs text-gray-500 font-medium -mt-1">Navigate • Discover • Conquer</div>
+                <Badge
+                  variant="outline"
+                  className="text-xs px-2 py-0.5 bg-gradient-to-r from-emerald-50 to-blue-50 border-emerald-200"
+                >
+                  v2.1.0
+                </Badge>
+              </div>
             </div>
           </div>
 
