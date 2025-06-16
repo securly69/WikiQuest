@@ -6,28 +6,31 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "socket-server": "node server/socket-server.js"
   },
   "dependencies": {
-    "@radix-ui/react-slot": "^1.0.2",
-    "@types/node": "^20.0.0",
-    "@types/react": "^18.0.0",
-    "@types/react-dom": "^18.0.0",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "http": "0.0.1-security",
+    "http": "latest",
     "lucide-react": "^0.454.0",
-    "next": "^14.2.16",
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
+    "next": "14.2.16",
+    "react": "^18",
+    "react-dom": "^18",
+    "socket.io": "latest",
+    "socket.io-client": "latest",
     "tailwind-merge": "^2.5.5",
-    "tailwindcss": "^3.4.3",
     "tailwindcss-animate": "^1.0.7",
-    "typescript": "^5.0.2"
+    "typescript": "^5"
   },
   "devDependencies": {
-    "postcss": "^8.5.0"
+    "@types/node": "^22",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "postcss": "^8.5",
+    "typescript": "^5"
   }
 }
